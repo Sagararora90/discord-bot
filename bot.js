@@ -73,6 +73,9 @@ async function backfillMessages() {
 }
 
 client.on(Events.MessageCreate, async message => {
+    // DIAGNOSTIC LOG (You can see this in Render logs)
+    console.log(`📩 Received: "${message.content}" from ${message.author.tag} in #${message.channel.name}`);
+
     // 1. Manual Cleanup Command
     if (message.content === '!clear' && message.channel.name === process.env.TARGET_CHANNEL_NAME) {
         console.log(`🧹 Manual cleanup triggered by ${message.author.tag}`);
