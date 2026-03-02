@@ -1,6 +1,16 @@
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { addMessage, getExpiredMessages, removeMessage } = require('./database');
+const http = require('http');
 require('dotenv').config();
+
+// Create a dummy server for Render's health check
+const PORT = process.env.PORT || 10000;
+http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Bot is running!');
+}).listen(PORT, () => {
+    console.log(`🌐 Port ${PORT} opened for Render health check.`);
+});
 
 const client = new Client({
     intents: [
