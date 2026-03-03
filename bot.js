@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, Events } = require('discord.js');
 const { addMessage, getExpiredMessages, removeMessage } = require('./database');
 const http = require('http');
+const https = require('https');
 require('dotenv').config();
 
 // Create a dummy server for Render's health check
@@ -17,7 +18,8 @@ const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
 if (EXTERNAL_URL) {
     console.log(`🚀 Self-pinger active for: ${EXTERNAL_URL}`);
     setInterval(() => {
-        http.get(EXTERNAL_URL, (res) => {
+        const client = EXTERNAL_URL.startsWith('https') ? https : http;
+        client.get(EXTERNAL_URL, (res) => {
             console.log(`📡 Self-ping successful: ${res.statusCode}`);
         }).on('error', (err) => {
             console.error(`📡 Self-ping failed: ${err.message}`);
