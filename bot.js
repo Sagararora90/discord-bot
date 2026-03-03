@@ -12,6 +12,21 @@ http.createServer((req, res) => {
     console.log(`🌐 Port ${PORT} opened for Render health check.`);
 });
 
+// --- SELF-PINGER (Keep-Alive) ---
+const EXTERNAL_URL = process.env.RENDER_EXTERNAL_URL;
+if (EXTERNAL_URL) {
+    console.log(`🚀 Self-pinger active for: ${EXTERNAL_URL}`);
+    setInterval(() => {
+        http.get(EXTERNAL_URL, (res) => {
+            console.log(`📡 Self-ping successful: ${res.statusCode}`);
+        }).on('error', (err) => {
+            console.error(`📡 Self-ping failed: ${err.message}`);
+        });
+    }, 1 * 60 * 1000); // Ping every 1 minute
+} else {
+    console.log("⚠️ RENDER_EXTERNAL_URL not set. Self-pinger disabled.");
+}
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
