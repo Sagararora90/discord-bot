@@ -61,8 +61,8 @@ async function backfillMessages() {
         const channels = await guild.channels.fetch();
         
         for (const [channelId, channel] of channels) {
-            // Only scan the target channel
-            if (channel.isTextBased() && channel.name === process.env.TARGET_CHANNEL_NAME) {
+            // Scan all text-based channels
+            if (channel.isTextBased()) {
                 try {
                     console.log(`🔎 Checking channel: #${channel.name}`);
                     const messages = await channel.messages.fetch({ limit: 100 });
@@ -94,7 +94,7 @@ client.on(Events.MessageCreate, async message => {
     console.log(`📩 Received: "${message.content}" from ${message.author.tag} in #${message.channel.name}`);
 
     // 1. Manual Cleanup Command
-    if (message.content === '!clear' && message.channel.name === process.env.TARGET_CHANNEL_NAME) {
+    if (message.content === '!clear') {
         console.log(`🧹 Manual cleanup triggered by ${message.author.tag}`);
         try {
             const fetched = await message.channel.messages.fetch({ limit: 100 });
@@ -113,8 +113,8 @@ client.on(Events.MessageCreate, async message => {
         return;
     }
 
-    // 2. Track webhook messages in the target channel
-    if (message.webhookId && message.channel.name === process.env.TARGET_CHANNEL_NAME) {
+    // 2. Track webhook messages
+    if (message.webhookId) {
         console.log(`📝 Tracking new webhook message: ${message.id} in #${message.channel.name}`);
         addMessage(message.id, message.channelId, Date.now());
     }
