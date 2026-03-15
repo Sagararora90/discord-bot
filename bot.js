@@ -45,8 +45,9 @@ client.once(Events.ClientReady, async c => {
     await backfillMessages();
 
     // Start the cleanup scheduler
-    console.log(`⏰ Scheduler started (Interval: 1m)`);
-    setInterval(cleanupExpiredMessages, 60000); // Check every minute
+    const interval = (process.env.DELETE_DELAY_HOURS === "0") ? 5000 : 60000;
+    console.log(`⏰ Scheduler started (Interval: ${interval / 1000}s)`);
+    setInterval(cleanupExpiredMessages, interval); // Check every 5s if immediate, else 1m
 });
 
 /**
