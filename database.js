@@ -99,10 +99,8 @@ function clearChannel(channelId) {
     saveDb();
 }
 
-// Initial load
-loadDb();
-
 module.exports = {
+    loadDb,
     addMessage,
     getExpiredMessages,
     removeMessage,

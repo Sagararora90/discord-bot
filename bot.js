@@ -1,8 +1,12 @@
+console.log('🏁 Bot script starting...');
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { addMessage, getExpiredMessages, removeMessage, clearChannel, saveDb } = require('./database');
+console.log('📦 discord.js loaded.');
+const database = require('./database');
+console.log('🗄️ Database module required.');
 const http = require('http');
 const https = require('https');
 require('dotenv').config();
+console.log('📄 .env loaded.');
 
 // Create a dummy server for Render's health check
 const PORT = process.env.PORT || 10000;
@@ -41,6 +45,10 @@ client.once(Events.ClientReady, async c => {
     console.log(`✅ Logged in as ${c.user.tag}`);
     console.log(`⚙️ Config: Delay=${process.env.DELETE_DELAY_HOURS || 'Default(24)'}h, Channel=#${process.env.TARGET_CHANNEL_NAME || 'All'}`);
     
+    // Explicitly load DB only after login
+    console.log('🔄 Initializing database cache...');
+    database.loadDb(); 
+    
     // Scan channels for existing webhook messages
     await backfillMessages();
 
@@ -72,7 +80,7 @@ async function backfillMessages() {
                     for (const [msgId, msg] of messages) {
                         if (msg.webhookId) {
                             // Use skipSave=true for bulk insertions
-                            addMessage(msg.id, msg.channelId, msg.createdTimestamp, true);
+                            database.addMessage(msg.id, msg.channelId, msg.createdTimestamp, true);
                             webhookCount++;
                         }
                     }
@@ -87,7 +95,7 @@ async function backfillMessages() {
         }
     }
     // Save once after all channels are scanned
-    saveDb();
+    database.saveDb();
     console.log(`💾 Startup scan complete. Database saved.`);
 }
 
@@ -106,7 +114,7 @@ client.on(Events.MessageCreate, async message => {
             console.log(`✅ Cleanup successful: Deleted ${fetched.size} messages.`);
             
             // Remove all entries for this channel from the tracking database
-            clearChannel(message.channelId);
+            database.clearChannel(message.channelId);
         } catch (err) {
             console.error('❌ Error during manual cleanup:', err.message);
         }
@@ -116,7 +124,7 @@ client.on(Events.MessageCreate, async message => {
     // 2. Track webhook messages
     if (message.webhookId) {
         console.log(`📝 Tracking new webhook message: ${message.id} in #${message.channel.name}`);
-        addMessage(message.id, message.channelId, Date.now());
+        database.addMessage(message.id, message.channelId, Date.now());
     }
 });
 
@@ -124,7 +132,7 @@ client.on(Events.MessageCreate, async message => {
  * Periodically checks for and deletes expired messages
  */
 async function cleanupExpiredMessages() {
-    const expired = getExpiredMessages();
+    const expired = database.getExpiredMessages();
     if (expired.length === 0) return;
 
     console.log(`🧹 Attempting to delete ${expired.length} expired messages...`);
@@ -145,7 +153,7 @@ async function cleanupExpiredMessages() {
             }
         } finally {
             // Always remove from database to avoid repeated failure
-            removeMessage(msg.message_id);
+            database.removeMessage(msg.message_id);
         }
     }
 }
