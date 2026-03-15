@@ -161,7 +161,14 @@ process.on('uncaughtException', error => {
     process.exit(1);
 });
 
-client.login(process.env.DISCORD_TOKEN).catch(err => {
+console.log('🔌 Attempting to login to Discord...');
+if (!process.env.DISCORD_TOKEN) {
+    console.error('❌ DISCORD_TOKEN is missing in environment variables!');
+}
+
+client.login(process.env.DISCORD_TOKEN).then(() => {
+    console.log('🔑 Login request sent successfully.');
+}).catch(err => {
     console.error('❌ Failed to login to Discord:', err.message);
     if (err.message.includes('privileged intents')) {
         console.error('🚨 TIP: You MUST enable "Message Content Intent" in the Discord Developer Portal (Bot tab)!');
