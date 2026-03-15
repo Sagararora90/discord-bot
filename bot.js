@@ -169,30 +169,33 @@ process.on('uncaughtException', error => {
     process.exit(1);
 });
 
+console.log(`💻 Node Info: version=${process.version}, platform=${process.platform}`);
+
+// Enable library debug logs
+client.on('debug', info => {
+    if (info.includes('Heartbeat') || info.includes('Latency')) return; 
+    console.log(`⚙️ [DJS Debug] ${info}`);
+});
+
+client.on('shardReady', (id) => console.log(`💎 Shard ${id} is ready.`));
+client.on('shardDisconnect', (event, id) => console.warn(`🔌 Shard ${id} disconnected:`, event));
+client.on('shardError', (error, id) => console.error(`❌ Shard ${id} error:`, error.message));
+client.on('shardReconnecting', (id) => console.log(`🔄 Shard ${id} reconnecting...`));
+
 console.log('🔌 Attempting to login to Discord...');
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
     console.error('❌ DISCORD_TOKEN is missing in environment variables!');
 } else {
-    // Log token metadata for debugging (safe)
     const sanitizedToken = token.trim();
-    console.log(`ℹ️ Token info: length=${token.length}, trimmed_length=${sanitizedToken.length}, startsWith=${token.substring(0, 4)}...`);
-    if (token !== sanitizedToken) {
-        console.warn('⚠️ WARNING: Token contains leading or trailing whitespace! Trimming it...');
-    }
+    console.log(`ℹ️ Token info: length=${token.length}, startsWith=${token.substring(0, 4)}...`);
 }
 
-// Enable library debug logs
-client.on('debug', info => {
-    if (info.includes('Heartbeat') || info.includes('Latency')) return; // Filter spam
-    console.log(`⚙️ [DJS Debug] ${info}`);
-});
-
 client.login(token?.trim()).then(() => {
-    console.log('🔑 Login request sent successfully.');
+    console.log('🔑 client.login() promise resolved.');
 }).catch(err => {
-    console.error('❌ Failed to login to Discord:', err.message);
+    console.error('❌ client.login() rejected with error:', err.message);
     if (err.message.includes('privileged intents')) {
-        console.error('🚨 TIP: You MUST enable "Message Content Intent" in the Discord Developer Portal (Bot tab)!');
+        console.error('🚨 TIP: You MUST enable "Message Content Intent" in the Discord Developer Portal!');
     }
 });
