@@ -42,7 +42,7 @@ const client = new Client({
     ws: { version: 10 }
 });
 
-// Added to debug gateway hang
+// Shard & Gateway Debugging
 client.on('shardReady', (id) => console.log(`💎 Shard ${id} is ready.`));
 client.on('shardDisconnect', (event, id) => console.warn(`🔌 Shard ${id} disconnected:`, event));
 client.on('shardError', (error, id) => console.error(`❌ Shard ${id} error:`, error.message));
@@ -56,17 +56,17 @@ async function checkNetworking() {
     console.log('📡 Testing connectivity to Discord API...');
     return new Promise((resolve) => {
         const req = https.get('https://discord.com/api/v10/gateway', (res) => {
-            console.log(`🌐 Gateway check: Success (Status: ${res.statusCode})`);
-            resolve(true);
+            console.log(`🌐 Gateway check: Result Status ${res.statusCode}`);
+            resolve(res.statusCode);
         });
         req.on('error', (err) => {
             console.error(`🌐 Gateway check: FAILED! Error: ${err.message}`);
-            resolve(false);
+            resolve(500);
         });
         req.setTimeout(5000, () => {
             console.error('🌐 Gateway check: TIMEOUT after 5 seconds.');
             req.destroy();
-            resolve(false);
+            resolve(408);
         });
     });
 }
@@ -97,70 +97,63 @@ async function backfillMessages() {
     
     for (const [guildId, guildBase] of guilds) {
         const guild = await guildBase.fetch();
-        const channels = await guild.channels.fetch();
-        
-        for (const [channelId, channel] of channels) {
-            // Scan all text-based channels
-            if (channel.isTextBased()) {
-                try {
-                    console.log(`🔎 Checking channel: #${channel.name}`);
-                    const messages = await channel.messages.fetch({ limit: 100 });
-                    
-                    let webhookCount = 0;
-                    for (const [msgId, msg] of messages) {
-                        if (msg.webhookId) {
-                            // Use skipSave=true for bulk insertions
-                            database.addMessage(msg.id, msg.channelId, msg.createdTimestamp, true);
-                            webhookCount++;
+        try {
+            const channels = await guild.channels.fetch();
+            for (const [channelId, channel] of channels) {
+                if (channel && channel.isTextBased()) {
+                    try {
+                        console.log(`🔎 Checking channel: #${channel.name}`);
+                        const messages = await channel.messages.fetch({ limit: 100 });
+                        
+                        let webhookCount = 0;
+                        for (const [msgId, msg] of messages) {
+                            if (msg.webhookId) {
+                                database.addMessage(msg.id, msg.channelId, msg.createdTimestamp, true);
+                                webhookCount++;
+                            }
                         }
+                        if (webhookCount > 0) {
+                            console.log(`✅ Tracked ${webhookCount} existing messages in #${channel.name}`);
+                        }
+                    } catch (e) {
+                        // Skip channels where bot lacks permissions
                     }
-                    
-                    if (webhookCount > 0) {
-                        console.log(`✅ Tracked ${webhookCount} existing messages in #${channel.name}`);
-                    }
-                } catch (e) {
-                    // Skip channels where bot lacks permissions
                 }
             }
+        } catch (e) {
+            console.warn(`⚠️ Failed to fetch channels for guild ${guild.name}`);
         }
     }
-    // Save once after all channels are scanned
     database.saveDb();
     console.log(`💾 Startup scan complete. Database saved.`);
 }
 
 client.on(Events.MessageCreate, async message => {
-    // DIAGNOSTIC LOG (You can see this in Render logs)
     console.log(`📩 Received: "${message.content}" from ${message.author.tag} in #${message.channel.name}`);
 
-    // 1. Manual Cleanup Command
     if (message.content === '!clear') {
-        console.log(`🧹 Manual cleanup triggered by ${message.author.tag} in #${message.channel.name}`);
-        try {
-            const fetched = await message.channel.messages.fetch({ limit: 100 });
-            
-            // Delete ALL messages in the fetched batch
-            await message.channel.bulkDelete(fetched, true);
-            console.log(`✅ Cleanup successful: Deleted ${fetched.size} messages.`);
-            
-            // Remove all entries for this channel from the tracking database
-            database.clearChannel(message.channelId);
-        } catch (err) {
-            console.error('❌ Error during manual cleanup:', err.message);
-        }
+        processManualClear(message);
         return;
     }
 
-    // 2. Track webhook messages
     if (message.webhookId) {
         console.log(`📝 Tracking new webhook message: ${message.id} in #${message.channel.name}`);
         database.addMessage(message.id, message.channelId, Date.now());
     }
 });
 
-/**
- * Periodically checks for and deletes expired messages
- */
+async function processManualClear(message) {
+    console.log(`🧹 Manual cleanup triggered by ${message.author.tag} in #${message.channel.name}`);
+    try {
+        const fetched = await message.channel.messages.fetch({ limit: 100 });
+        await message.channel.bulkDelete(fetched, true);
+        console.log(`✅ Cleanup successful: Deleted ${fetched.size} messages.`);
+        database.clearChannel(message.channelId);
+    } catch (err) {
+        console.error('❌ Error during manual cleanup:', err.message);
+    }
+}
+
 async function cleanupExpiredMessages() {
     const expired = database.getExpiredMessages();
     if (expired.length === 0) return;
@@ -175,14 +168,12 @@ async function cleanupExpiredMessages() {
                 console.log(`🗑️ Deleted message: ${msg.message_id}`);
             }
         } catch (error) {
-            // If the message is already gone or the bot lacks permission
             if (error.code === 10008) {
                 console.log(`ℹ️ Message ${msg.message_id} already deleted or not found.`);
             } else {
                 console.error(`❌ Error deleting message ${msg.message_id}:`, error.message);
             }
         } finally {
-            // Always remove from database to avoid repeated failure
             database.removeMessage(msg.message_id);
         }
     }
@@ -190,7 +181,6 @@ async function cleanupExpiredMessages() {
 
 client.on('error', console.error);
 
-// Keep these at the bottom to ensure they run last
 process.on('unhandledRejection', error => {
     console.error('📋 Unhandled promise rejection:', error);
 });
@@ -204,7 +194,16 @@ async function start() {
     console.log('🏁 Bot script starting...');
     console.log(`💻 Node Info: version=${process.version}, platform=${process.platform}`);
     
-    await checkNetworking();
+    let status = await checkNetworking();
+    
+    if (status === 429) {
+        console.warn('⚠️ ALERT: You are being RATE LIMITED (429) by Discord.');
+        console.warn('⏳ Waiting 65 seconds before attempting login to cooldown...');
+        await new Promise(r => setTimeout(r, 65000));
+        console.log('🔄 Cooldown finished. Attempting login anyway...');
+    } else if (status !== 200) {
+        console.warn(`⚠️ Warning: Gateway check returned non-200 status (${status}). Connection might fail.`);
+    }
     
     console.log('🔌 Attempting to login to Discord...');
     const token = process.env.DISCORD_TOKEN;
@@ -216,7 +215,6 @@ async function start() {
     const sanitizedToken = token.trim();
     console.log(`ℹ️ Token info: length=${token.length}, startsWith=${token.substring(0, 4)}...`);
 
-    // Enable library debug logs
     client.on('debug', info => {
         if (info.includes('Heartbeat') || info.includes('Latency')) return; 
         console.log(`⚙️ [DJS Debug] ${info}`);
@@ -225,11 +223,12 @@ async function start() {
     let loginFinished = false;
     const hangInterval = setInterval(() => {
         if (!loginFinished) {
-            console.warn('⚠️ HANGING ALERT: client.login() has not finished in 10 seconds...');
+            console.warn('⚠️ HANGING ALERT: client.login() has not finished in 20 seconds...');
+            console.warn('💡 Tip: In Render Dashboard, try "Clear Build Cache & Deploy" or change your Region.');
         } else {
             clearInterval(hangInterval);
         }
-    }, 10000);
+    }, 20000);
 
     client.login(sanitizedToken).then(() => {
         loginFinished = true;
