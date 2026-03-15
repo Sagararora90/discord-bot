@@ -223,12 +223,12 @@ async function start() {
     let loginFinished = false;
     const hangInterval = setInterval(() => {
         if (!loginFinished) {
-            console.warn('⚠️ HANGING ALERT: client.login() has not finished in 20 seconds...');
+            console.warn('⚠️ HANGING ALERT: client.login() has not finished in 30 seconds...');
             console.warn('💡 Tip: In Render Dashboard, try "Clear Build Cache & Deploy" or change your Region.');
         } else {
             clearInterval(hangInterval);
         }
-    }, 20000);
+    }, 30000);
 
     client.login(sanitizedToken).then(() => {
         loginFinished = true;
