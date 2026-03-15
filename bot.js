@@ -1,5 +1,5 @@
 const { Client, GatewayIntentBits, Events } = require('discord.js');
-const { addMessage, getExpiredMessages, removeMessage } = require('./database');
+const { addMessage, getExpiredMessages, removeMessage, clearChannel, saveDb } = require('./database');
 const http = require('http');
 const https = require('https');
 require('dotenv').config();
@@ -66,18 +66,16 @@ async function backfillMessages() {
                 try {
                     console.log(`🔎 Checking channel: #${channel.name}`);
                     const messages = await channel.messages.fetch({ limit: 100 });
-                    console.log(`📊 Fetched ${messages.size} total messages in #${channel.name}`);
                     
+                    let webhookCount = 0;
                     for (const [msgId, msg] of messages) {
                         if (msg.webhookId) {
-                            console.log(`📎 Found webhook message: ${msg.id}`);
-                            addMessage(msg.id, msg.channelId, msg.createdTimestamp);
-                        } else {
-                            console.log(`⏩ Skipping message ${msg.id} (Sent by: ${msg.author.tag})`);
+                            // Use skipSave=true for bulk insertions
+                            addMessage(msg.id, msg.channelId, msg.createdTimestamp, true);
+                            webhookCount++;
                         }
                     }
                     
-                    const webhookCount = messages.filter(m => m.webhookId).size;
                     if (webhookCount > 0) {
                         console.log(`✅ Tracked ${webhookCount} existing messages in #${channel.name}`);
                     }
@@ -87,6 +85,9 @@ async function backfillMessages() {
             }
         }
     }
+    // Save once after all channels are scanned
+    saveDb();
+    console.log(`💾 Startup scan complete. Database saved.`);
 }
 
 client.on(Events.MessageCreate, async message => {
@@ -95,18 +96,16 @@ client.on(Events.MessageCreate, async message => {
 
     // 1. Manual Cleanup Command
     if (message.content === '!clear') {
-        console.log(`🧹 Manual cleanup triggered by ${message.author.tag}`);
+        console.log(`🧹 Manual cleanup triggered by ${message.author.tag} in #${message.channel.name}`);
         try {
             const fetched = await message.channel.messages.fetch({ limit: 100 });
-            // FILTER: Only delete webhooks, bots, or the !clear command itself
-            const toDelete = fetched.filter(m => m.webhookId || m.author.bot || m.id === message.id);
             
-            await message.channel.bulkDelete(toDelete, true);
-            console.log(`✅ Selective cleanup: Deleted ${toDelete.size} junk/webhook messages.`);
+            // Delete ALL messages in the fetched batch
+            await message.channel.bulkDelete(fetched, true);
+            console.log(`✅ Cleanup successful: Deleted ${fetched.size} messages.`);
             
-            // Also clear our tracking database since those messages are gone
-            const { saveDb } = require('./database');
-            saveDb([]); 
+            // Remove all entries for this channel from the tracking database
+            clearChannel(message.channelId);
         } catch (err) {
             console.error('❌ Error during manual cleanup:', err.message);
         }

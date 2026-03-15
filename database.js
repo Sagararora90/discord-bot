@@ -4,29 +4,47 @@ require('dotenv').config();
 
 const dbPath = path.resolve(__dirname, process.env.DATABASE_PATH || './data.json');
 
+// In-memory cache
+let messagesCache = [];
+
 /**
- * Loads the database from JSON file
+ * Loads the database from JSON file into memory cache
  */
 function loadDb() {
-    if (!fs.existsSync(dbPath)) {
-        fs.writeFileSync(dbPath, JSON.stringify([]));
+    try {
+        if (!fs.existsSync(dbPath)) {
+            fs.writeFileSync(dbPath, JSON.stringify([]));
+            messagesCache = [];
+            return [];
+        }
+        const data = fs.readFileSync(dbPath, 'utf8');
+        messagesCache = JSON.parse(data);
+        return messagesCache;
+    } catch (err) {
+        console.error('❌ Error loading database:', err.message);
+        messagesCache = [];
         return [];
     }
-    const data = fs.readFileSync(dbPath, 'utf8');
-    return JSON.parse(data);
 }
 
 /**
- * Saves the database to JSON file
+ * Saves the in-memory cache to JSON file
  */
-function saveDb(data) {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
+function saveDb(data = null) {
+    if (data !== null) {
+        messagesCache = data;
+    }
+    try {
+        fs.writeFileSync(dbPath, JSON.stringify(messagesCache, null, 2));
+    } catch (err) {
+        console.error('❌ Error saving database:', err.message);
+    }
 }
 
 /**
- * Adds a message to the tracking database
+ * Adds a message to the tracking database (In-memory)
  */
-function addMessage(messageId, channelId, timestamp) {
+function addMessage(messageId, channelId, timestamp, skipSave = false) {
     let hoursRaw = process.env.DELETE_DELAY_HOURS || "24";
     let hours;
     
@@ -40,23 +58,25 @@ function addMessage(messageId, channelId, timestamp) {
     if (isNaN(hours)) hours = 24; 
     const deleteAt = timestamp + (hours * 60 * 60 * 1000);
     
-    const db = loadDb();
-    if (!db.some(m => m.message_id === messageId)) {
-        db.push({ message_id: messageId, channel_id: channelId, delete_at: deleteAt });
-        saveDb(db);
+    if (!messagesCache.some(m => m.message_id === messageId)) {
+        messagesCache.push({ message_id: messageId, channel_id: channelId, delete_at: deleteAt });
+        if (!skipSave) saveDb();
     }
 }
 
 /**
- * Gets all messages that are ready to be deleted
+ * Gets all messages from cache that are ready to be deleted
  */
 function getExpiredMessages() {
     const now = Date.now();
-    const db = loadDb();
-    const expired = db.filter(m => m.delete_at <= now);
-    console.log(`🔍 DB Check: ${db.length} total, ${expired.length} expired (Now: ${now})`);
-    if (db.length > 0 && expired.length === 0) {
-        console.log(`⏳ Next deletion in: ${Math.round((db[0].delete_at - now) / 1000)}s`);
+    const expired = messagesCache.filter(m => m.delete_at <= now);
+    
+    console.log(`🔍 DB Check: ${messagesCache.length} total, ${expired.length} expired (Now: ${now})`);
+    
+    if (messagesCache.length > 0 && expired.length === 0) {
+        // Find the next deletion time by sorting or using Math.min
+        const nextDelete = Math.min(...messagesCache.map(m => m.delete_at));
+        console.log(`⏳ Next deletion in: ${Math.round((nextDelete - now) / 1000)}s`);
     }
     return expired;
 }
@@ -64,15 +84,28 @@ function getExpiredMessages() {
 /**
  * Removes a message from the database
  */
-function removeMessage(messageId) {
-    const db = loadDb();
-    const filtered = db.filter(m => m.message_id !== messageId);
-    saveDb(filtered);
+function removeMessage(messageId, skipSave = false) {
+    messagesCache = messagesCache.filter(m => m.message_id !== messageId);
+    if (!skipSave) saveDb();
 }
+
+/**
+ * Removes all tracked messages for a specific channel
+ */
+function clearChannel(channelId) {
+    const initialCount = messagesCache.length;
+    messagesCache = messagesCache.filter(m => m.channel_id !== channelId);
+    console.log(`🧹 DB Pruned: Removed ${initialCount - messagesCache.length} entries for channel ${channelId}`);
+    saveDb();
+}
+
+// Initial load
+loadDb();
 
 module.exports = {
     addMessage,
     getExpiredMessages,
     removeMessage,
+    clearChannel,
     saveDb
 };
