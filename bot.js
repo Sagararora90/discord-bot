@@ -38,8 +38,38 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent
-    ]
+    ],
+    ws: { version: 10 }
 });
+
+// Added to debug gateway hang
+client.on('shardReady', (id) => console.log(`💎 Shard ${id} is ready.`));
+client.on('shardDisconnect', (event, id) => console.warn(`🔌 Shard ${id} disconnected:`, event));
+client.on('shardError', (error, id) => console.error(`❌ Shard ${id} error:`, error.message));
+client.on('shardReconnecting', (id) => console.log(`🔄 Shard ${id} reconnecting...`));
+client.on('invalidated', () => console.error('🚫 Session invalidated.'));
+
+/**
+ * Checks connectivity to Discord's API
+ */
+async function checkNetworking() {
+    console.log('📡 Testing connectivity to Discord API...');
+    return new Promise((resolve) => {
+        const req = https.get('https://discord.com/api/v10/gateway', (res) => {
+            console.log(`🌐 Gateway check: Success (Status: ${res.statusCode})`);
+            resolve(true);
+        });
+        req.on('error', (err) => {
+            console.error(`🌐 Gateway check: FAILED! Error: ${err.message}`);
+            resolve(false);
+        });
+        req.setTimeout(5000, () => {
+            console.error('🌐 Gateway check: TIMEOUT after 5 seconds.');
+            req.destroy();
+            resolve(false);
+        });
+    });
+}
 
 client.once(Events.ClientReady, async c => {
     console.log(`✅ Logged in as ${c.user.tag}`);
@@ -160,6 +190,7 @@ async function cleanupExpiredMessages() {
 
 client.on('error', console.error);
 
+// Keep these at the bottom to ensure they run last
 process.on('unhandledRejection', error => {
     console.error('📋 Unhandled promise rejection:', error);
 });
@@ -169,33 +200,44 @@ process.on('uncaughtException', error => {
     process.exit(1);
 });
 
-console.log(`💻 Node Info: version=${process.version}, platform=${process.platform}`);
-
-// Enable library debug logs
-client.on('debug', info => {
-    if (info.includes('Heartbeat') || info.includes('Latency')) return; 
-    console.log(`⚙️ [DJS Debug] ${info}`);
-});
-
-client.on('shardReady', (id) => console.log(`💎 Shard ${id} is ready.`));
-client.on('shardDisconnect', (event, id) => console.warn(`🔌 Shard ${id} disconnected:`, event));
-client.on('shardError', (error, id) => console.error(`❌ Shard ${id} error:`, error.message));
-client.on('shardReconnecting', (id) => console.log(`🔄 Shard ${id} reconnecting...`));
-
-console.log('🔌 Attempting to login to Discord...');
-const token = process.env.DISCORD_TOKEN;
-if (!token) {
-    console.error('❌ DISCORD_TOKEN is missing in environment variables!');
-} else {
+async function start() {
+    console.log('🏁 Bot script starting...');
+    console.log(`💻 Node Info: version=${process.version}, platform=${process.platform}`);
+    
+    await checkNetworking();
+    
+    console.log('🔌 Attempting to login to Discord...');
+    const token = process.env.DISCORD_TOKEN;
+    if (!token) {
+        console.error('❌ DISCORD_TOKEN is missing in environment variables!');
+        return;
+    }
+    
     const sanitizedToken = token.trim();
     console.log(`ℹ️ Token info: length=${token.length}, startsWith=${token.substring(0, 4)}...`);
+
+    // Enable library debug logs
+    client.on('debug', info => {
+        if (info.includes('Heartbeat') || info.includes('Latency')) return; 
+        console.log(`⚙️ [DJS Debug] ${info}`);
+    });
+
+    let loginFinished = false;
+    const hangInterval = setInterval(() => {
+        if (!loginFinished) {
+            console.warn('⚠️ HANGING ALERT: client.login() has not finished in 10 seconds...');
+        } else {
+            clearInterval(hangInterval);
+        }
+    }, 10000);
+
+    client.login(sanitizedToken).then(() => {
+        loginFinished = true;
+        console.log('🔑 client.login() promise resolved.');
+    }).catch(err => {
+        loginFinished = true;
+        console.error('❌ client.login() rejected with error:', err.message);
+    });
 }
 
-client.login(token?.trim()).then(() => {
-    console.log('🔑 client.login() promise resolved.');
-}).catch(err => {
-    console.error('❌ client.login() rejected with error:', err.message);
-    if (err.message.includes('privileged intents')) {
-        console.error('🚨 TIP: You MUST enable "Message Content Intent" in the Discord Developer Portal!');
-    }
-});
+start();
