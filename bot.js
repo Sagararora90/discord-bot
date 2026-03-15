@@ -170,11 +170,25 @@ process.on('uncaughtException', error => {
 });
 
 console.log('🔌 Attempting to login to Discord...');
-if (!process.env.DISCORD_TOKEN) {
+const token = process.env.DISCORD_TOKEN;
+if (!token) {
     console.error('❌ DISCORD_TOKEN is missing in environment variables!');
+} else {
+    // Log token metadata for debugging (safe)
+    const sanitizedToken = token.trim();
+    console.log(`ℹ️ Token info: length=${token.length}, trimmed_length=${sanitizedToken.length}, startsWith=${token.substring(0, 4)}...`);
+    if (token !== sanitizedToken) {
+        console.warn('⚠️ WARNING: Token contains leading or trailing whitespace! Trimming it...');
+    }
 }
 
-client.login(process.env.DISCORD_TOKEN).then(() => {
+// Enable library debug logs
+client.on('debug', info => {
+    if (info.includes('Heartbeat') || info.includes('Latency')) return; // Filter spam
+    console.log(`⚙️ [DJS Debug] ${info}`);
+});
+
+client.login(token?.trim()).then(() => {
     console.log('🔑 Login request sent successfully.');
 }).catch(err => {
     console.error('❌ Failed to login to Discord:', err.message);
